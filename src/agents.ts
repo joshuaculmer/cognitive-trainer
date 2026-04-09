@@ -269,13 +269,13 @@ You will provide your output as a structured list of issues found. Be thorough b
 export const agents: Agent[] = [
   {
     name: 'main',
-    model: 'gpt-4o-mini',
+    model: 'gpt-5-mini',
     tools: ['talk_to_user', 'send_message_to_user', 'conclude', 'devils-advocate'],
     prompt: MAIN_PROMPT,
   },
   {
     name: 'devils-advocate',
-    model: 'gpt-4o-mini',
+    model: 'gpt-5-mini',
     description: 'Finds counter arguments, logical fallacies, holes, violations in logic, weak premises in arguments. Input (str): raw text from the user. Output (str): response from devils-advocate.',
     tools: [],
     prompt: DA_PROMPT,
