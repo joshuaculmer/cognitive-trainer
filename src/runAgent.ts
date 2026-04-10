@@ -1,6 +1,6 @@
 import type OpenAI from 'openai'
 import type { ToolBox } from './toolbox'
-import type { Agent } from './agents'
+import type { Agent } from './types'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyItem = Record<string, any>

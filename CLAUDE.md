@@ -23,26 +23,56 @@ Deployment is automatic: pushing to `main` triggers `.github/workflows/deploy.ym
 
 To enable GitHub Pages for a new repo: **Settings → Pages → Source → GitHub Actions**.
 
+## File Structure
+
+```
+src/
+  components/                        # Shared UI components (one folder per component)
+    ChatView/
+      ChatView.tsx                   # Chat screen: header+tabs, message list, status bar, input footer
+      ChatView.css
+    KeyGate/
+      KeyGate.tsx                    # API key entry screen shown before session starts
+      KeyGate.css
+    UsagePage/
+      UsagePage.tsx                  # Token usage + cost table (rendered inside ChatView usage tab)
+      UsagePage.css
+  trainers/                          # One folder per trainer
+    logic-trainer/
+      agents.ts                      # Agent configs: name, model, tool list, system prompts
+      useLogicTrainerSession.ts      # Session hook: OpenAI client, toolbox wiring, all state + refs
+  runAgent.ts                        # Generic agent loop (Responses API); not trainer-specific
+  toolbox.ts                         # ToolBox class: register/dispatch tool schemas and functions
+  types.ts                           # Shared TypeScript interfaces (Agent)
+  usage.ts                           # localStorage usage recording + cost summarization
+  App.tsx                            # Root: manages API key state, calls hook, routes to KeyGate or ChatView
+  main.tsx                           # Vite entry point
+  index.css                          # Global CSS vars (design tokens), resets, typography base
+
+docs/
+  css-reference.md                   # Design token reference, spacing/type/button patterns — read before adding CSS
+```
+
 ## Architecture
 
 All logic runs in the browser. The Python backend from the original project is fully replaced.
 
 ```
-Browser
-  └── App.tsx          orchestrates session lifecycle + React UI
-        ├── ToolBox    registers tool schemas + dispatch
-        ├── runAgent   OpenAI Responses API loop (tool calls → history → loop)
-        └── agents.ts  agent definitions (prompts + tool lists)
+App.tsx  (key state + routing)
+  ├── KeyGate          (unauthenticated)
+  └── ChatView         (authenticated)
+        ├── useLogicTrainerSession   (session hook: agent wiring, state, Promise-resolver pattern)
+        │     ├── runAgent           (OpenAI Responses API loop)
+        │     ├── ToolBox            (tool schema registry + dispatch)
+        │     └── agents.ts          (Logic Trainer prompts + agent configs)
+        └── UsagePage  (usage tab content)
 ```
 
-### Key Files
+### Component Contract
 
-| File | Role |
-|---|---|
-| `src/App.tsx` | Root component. API key gate, session start/restart, message state, submit handler, download transcript. |
-| `src/runAgent.ts` | Agent execution loop. Calls `client.responses.create()`, handles tool calls, loops until a text message or `conclude`. Port of the original `run_agent.py`. |
-| `src/toolbox.ts` | `ToolBox` class. Registers tool schemas and dispatch functions. Replaces `tools.py` — schemas are declared manually (no runtime reflection). |
-| `src/agents.ts` | Agent configs: name, model, tool list, and full system prompt. Two agents: `main` and `devils-advocate`. Replaces `logic_helper.yaml`. |
+**`ChatView`** receives a `LogicTrainerSession` object as `session` prop plus `onStartNew` and `onChangeKey` callbacks. It owns only UI state (tab, textarea ref, scroll ref) — all session state lives in the hook. This means `useLogicTrainerSession` can be paired with a different UI, and `ChatView` can be paired with a different trainer's hook.
+
+**`useLogicTrainerSession`** returns: `messages`, `input`, `setInput`, `statusText`, `waitingForInput`, `sessionDone`, `usageVersion`, `transcriptIsEmpty`, `submit()`, `downloadTranscript()`, `clearUsage()`, `cancelSession()`, `startSession(key)`.
 
 ## Agent Design
 
@@ -58,7 +88,7 @@ Browser
 - Checks for a large catalogue of named logical fallacies (defined in `DA_PROMPT` in `agents.ts`)
 - Never suggests corrections — only identifies problems
 
-## WebSocket → Promise Resolver Pattern
+## Promise Resolver Pattern
 The original Python design used asyncio queues to pause the agent loop while waiting for user input. The TypeScript equivalent uses a Promise resolver stored in a ref:
 
 ```
@@ -66,7 +96,7 @@ runAgent() starts → calls talk_to_user tool → creates Promise → stores res
 User types and clicks Send → submit() calls inputResolverRef.resolve(text) → agent loop resumes
 ```
 
-Session cancellation (New Session button) increments `sessionIdRef` and rejects any pending promise. Each tool closure captures its session ID and no-ops if the session has changed.
+Session cancellation (`cancelSession()` / New Session button) increments `sessionIdRef` and rejects any pending promise. Each tool closure captures its session ID and no-ops if the session has changed.
 
 ## OpenAI API Usage
 - Uses the **Responses API** (`client.responses.create`) — not Chat Completions
@@ -75,13 +105,16 @@ Session cancellation (New Session button) increments `sessionIdRef` and rejects 
 - `dangerouslyAllowBrowser: true` is required for browser-side SDK usage
 - Model: `gpt-5-mini` for both agents
 
-## Planned Future Trainers
-- **Gap Checker**: Spaced-repetition review agent. Reviews topics from a history module, finds gaps in understanding, updates review schedules. Defined in `gap_checker.yaml` in the original project — not yet ported.
+## CSS
+All styles use CSS custom properties from `src/index.css`. Each component has its own `.css` file co-located in its folder — no shared component stylesheet.
 
-When adding a new trainer, the pattern is:
-1. Add agent configs to a new file (e.g. `src/trainers/gapChecker.ts`)
-2. Add a trainer selector to `App.tsx` (or a new top-level router)
-3. Register any trainer-specific tools in the session startup block
+See **`docs/css-reference.md`** for the full design token reference, typography scale, spacing cadence, button patterns, and conventions before adding or modifying any CSS.
+
+## Adding a New Trainer
+1. Create `src/trainers/my-trainer/agents.ts` — agent configs (import `Agent` from `../../types`)
+2. Create `src/trainers/my-trainer/useMyTrainerSession.ts` — session hook (same Promise-resolver pattern)
+3. Wire in `App.tsx` — add a trainer selector or route, call the hook, pass session to `<ChatView>`
+4. Register trainer-specific tools inside the hook's `startSession` (same ToolBox pattern)
 
 ## Key Constraints
 - No server, no build-time secrets — everything is client-side

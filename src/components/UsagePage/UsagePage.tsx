@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
-import { loadRecords, summarize } from './usage'
+import { loadRecords, summarize } from '../../usage'
+import './UsagePage.css'
 
 interface Props {
   version: number

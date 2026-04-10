@@ -1,10 +1,4 @@
-export interface Agent {
-  name: string
-  description?: string
-  model: string
-  tools: string[]
-  prompt?: string
-}
+import type { Agent } from '../../types'
 
 const MAIN_PROMPT = `You are Logic Improver Agent, your job is to help users improve their logic on topics
 that they care about very personally.
