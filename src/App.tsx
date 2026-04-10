@@ -4,6 +4,8 @@ import './App.css'
 import { ToolBox } from './toolbox'
 import { runAgent } from './runAgent'
 import { agents } from './agents'
+import { recordUsage, clearRecords } from './usage'
+import { UsagePage } from './UsagePage'
 
 interface Message {
   id: number
@@ -28,6 +30,8 @@ export default function App() {
   const [statusText, setStatusText] = useState('')
   const [waitingForInput, setWaitingForInput] = useState(false)
   const [sessionDone, setSessionDone] = useState(false)
+  const [tab, setTab] = useState<'chat' | 'usage'>('chat')
+  const [usageVersion, setUsageVersion] = useState(0)
 
   const inputResolverRef = useRef<{
     resolve: (v: string) => void
@@ -40,6 +44,25 @@ export default function App() {
 
   const addMessage = useCallback((sender: 'agent' | 'user', text: string) => {
     setMessages(prev => [...prev, { id: nextId++, sender, text }])
+  }, [])
+
+  const onUsage = useCallback((agentName: string, model: string, usage: unknown) => {
+    const u = usage as {
+      input_tokens?: number
+      input_tokens_details?: { cached_tokens?: number }
+      output_tokens?: number
+      output_tokens_details?: { reasoning_tokens?: number }
+    }
+    recordUsage({
+      agent: agentName,
+      model,
+      inputTokens: u?.input_tokens ?? 0,
+      cachedTokens: u?.input_tokens_details?.cached_tokens ?? 0,
+      outputTokens: u?.output_tokens ?? 0,
+      reasoningTokens: u?.output_tokens_details?.reasoning_tokens ?? 0,
+      timestamp: Date.now(),
+    })
+    setUsageVersion(v => v + 1)
   }, [])
 
   const startSession = useCallback(
@@ -146,14 +169,14 @@ export default function App() {
         async ({ input: argInput }: { input: string }) => {
           if (sessionId !== sessionIdRef.current) return ''
           setStatusText('Finding arguments…')
-          const result = await runAgent(client, toolbox, daAgent, String(argInput), [])
+          const result = await runAgent(client, toolbox, daAgent, String(argInput), [], onUsage)
           if (sessionId === sessionIdRef.current) setStatusText('Revising…')
           return result ?? ''
         },
       )
 
       const mainAgent = agents.find(a => a.name === 'main')!
-      runAgent(client, toolbox, mainAgent, undefined, [])
+      runAgent(client, toolbox, mainAgent, undefined, [], onUsage)
         .then(() => {
           if (sessionId !== sessionIdRef.current) return
           setStatusText('')
@@ -169,7 +192,7 @@ export default function App() {
           setWaitingForInput(false)
         })
     },
-    [addMessage],
+    [addMessage, onUsage],
   )
 
   useEffect(() => {
@@ -194,8 +217,6 @@ export default function App() {
     const text = input.trim()
     if (!text || !waitingForInput || !inputResolverRef.current) return
     addMessage('user', text)
-    setInput('')
-    if (textareaRef.current) textareaRef.current.style.height = 'auto'
     inputResolverRef.current.resolve(text)
     inputResolverRef.current = null
   }
@@ -279,65 +300,94 @@ export default function App() {
     <div className="chat-root">
       <header className="chat-header">
         <div className="header-left">
-          <h1>Logic Trainer</h1>
+          <button
+            className={`tab-btn${tab === 'chat' ? ' active' : ''}`}
+            onClick={() => setTab('chat')}
+          >
+            Logic Trainer
+          </button>
+          <button
+            className={`tab-btn${tab === 'usage' ? ' active' : ''}`}
+            onClick={() => setTab('usage')}
+          >
+            Usage
+          </button>
         </div>
         <div className="header-right">
-          <button
-            className="secondary-btn"
-            onClick={downloadTranscript}
-            disabled={transcriptRef.current.length === 0}
-          >
-            Download
-          </button>
-          <button className="secondary-btn" onClick={changeKey}>
-            API Key
-          </button>
-          <button className="end-btn" onClick={handleStartNew}>
-            New Session
-          </button>
+          {tab === 'chat' && (
+            <>
+              <button
+                className="secondary-btn"
+                onClick={downloadTranscript}
+                disabled={transcriptRef.current.length === 0}
+              >
+                Download
+              </button>
+              <button className="secondary-btn" onClick={changeKey}>
+                API Key
+              </button>
+              <button className="end-btn" onClick={handleStartNew}>
+                New Session
+              </button>
+            </>
+          )}
+          {tab === 'usage' && (
+            <button
+              className="secondary-btn"
+              onClick={() => { clearRecords(); setUsageVersion(v => v + 1) }}
+            >
+              Clear
+            </button>
+          )}
         </div>
       </header>
 
-      <main className="message-list">
-        {messages.length === 0 && !sessionDone && (
-          <p className="empty">Starting session…</p>
-        )}
-        {messages.map(msg => (
-          <div key={msg.id} className={`bubble ${msg.sender}`}>
-            <span className="label">{msg.sender === 'agent' ? 'Logic Trainer' : 'You'}</span>
-            <p>{msg.text}</p>
-          </div>
-        ))}
-        {sessionDone && (
-          <div className="session-done">
-            Session complete — start a new session to continue.
-          </div>
-        )}
-        <div ref={bottomRef} />
-      </main>
+      {tab === 'chat' ? (
+        <>
+          <main className="message-list">
+            {messages.length === 0 && !sessionDone && (
+              <p className="empty">Starting session…</p>
+            )}
+            {messages.map(msg => (
+              <div key={msg.id} className={`bubble ${msg.sender}`}>
+                <span className="label">{msg.sender === 'agent' ? 'Logic Trainer' : 'You'}</span>
+                <p>{msg.text}</p>
+              </div>
+            ))}
+            {sessionDone && (
+              <div className="session-done">
+                Session complete — start a new session to continue.
+              </div>
+            )}
+            <div ref={bottomRef} />
+          </main>
 
-      {statusText && (
-        <div className="status-bar">
-          <span className="status-dot" />
-          {statusText}
-        </div>
+          {statusText && (
+            <div className="status-bar">
+              <span className="status-dot" />
+              {statusText}
+            </div>
+          )}
+
+          <footer className="input-row">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              placeholder={
+                waitingForInput ? 'Type a message… (Ctrl+Enter to send)' : 'Waiting for agent…'
+              }
+              disabled={!waitingForInput}
+            />
+            <button onClick={submit} disabled={!waitingForInput || !input.trim()}>
+              Send
+            </button>
+          </footer>
+        </>
+      ) : (
+        <UsagePage version={usageVersion} />
       )}
-
-      <footer className="input-row">
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={handleInputChange}
-          onKeyDown={handleKeyDown}
-          placeholder={
-            waitingForInput ? 'Type a message… (Ctrl+Enter to send)' : 'Waiting for agent…'
-          }
-          disabled={!waitingForInput}
-        />
-        <button onClick={submit} disabled={!waitingForInput || !input.trim()}>
-          Send
-        </button>
-      </footer>
     </div>
   )
 }

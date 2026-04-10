@@ -11,6 +11,7 @@ export async function runAgent(
   agent: Agent,
   userMessage?: string,
   history: AnyItem[] = [],
+  onUsage?: (agentName: string, model: string, usage: unknown) => void,
 ): Promise<string | null> {
   if (userMessage) {
     history.push({ role: 'user', content: userMessage })
@@ -27,6 +28,9 @@ export async function runAgent(
       model: agent.model ?? 'gpt-4o-mini',
       tools: toolbox.getSchemas(agent.tools ?? []),
     })
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (onUsage && (response as any).usage) onUsage(agent.name, agent.model ?? 'gpt-4o-mini', (response as any).usage)
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const output: AnyItem[] = (response as any).output ?? []
