@@ -4,6 +4,7 @@ import { ToolBox } from '../../toolbox'
 import { runAgent } from '../../runAgent'
 import { agents } from './agents'
 import { recordUsage, clearRecords } from '../../usage'
+import { logicTrainerInitialHistory, INITIAL_CALL_ID, INITIAL_MESSAGE } from './agent_initial_history'
 
 export interface Message {
   id: number
@@ -82,7 +83,7 @@ export function useLogicTrainerSession(): LogicTrainerSession {
       transcriptRef.current = []
       setMessages([])
       setInput('')
-      setStatusText('Starting…')
+      setStatusText('')
       setWaitingForInput(false)
       setSessionDone(false)
 
@@ -183,9 +184,39 @@ export function useLogicTrainerSession(): LogicTrainerSession {
         },
       )
 
+      // Show the opening question immediately and enable input — no API round-trip needed.
+      addMessage('agent', INITIAL_MESSAGE)
+      transcriptRef.current.push({ role: 'agent', name: 'main', text: INITIAL_MESSAGE })
+      setWaitingForInput(true)
+
+      // Wait for the user's first message, then seed history with the synthetic
+      // first exchange and hand off to the normal runAgent loop.
+      const firstMessagePromise = new Promise<string>((resolve, reject) => {
+        inputResolverRef.current = {
+          resolve: text => {
+            if (sessionId !== sessionIdRef.current) return
+            transcriptRef.current.push({ role: 'user', text })
+            setWaitingForInput(false)
+            setStatusText('Thinking…')
+            resolve(text)
+          },
+          reject,
+        }
+      })
+
       const mainAgent = agents.find(a => a.name === 'main')!
-      runAgent(client, toolbox, mainAgent, undefined, [], onUsage)
-        .then(() => {
+
+      firstMessagePromise
+        .then(firstMessage => {
+          if (sessionId !== sessionIdRef.current) return Promise.resolve(null)
+          const history = [
+            ...logicTrainerInitialHistory,
+            { type: 'function_call_output', call_id: INITIAL_CALL_ID, output: firstMessage },
+          ]
+          return runAgent(client, toolbox, mainAgent, undefined, history, onUsage)
+        })
+        .then(result => {
+          if (result === undefined) return // session was cancelled before runAgent started
           if (sessionId !== sessionIdRef.current) return
           setStatusText('')
           setWaitingForInput(false)
