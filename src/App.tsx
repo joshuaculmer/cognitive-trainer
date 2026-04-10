@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { KeyGate } from './components/KeyGate/KeyGate'
-import { ChatView } from './components/ChatView/ChatView'
+// import { ChatView } from './components/ChatView/ChatView'
 import { useLogicTrainerSession } from './trainers/logic-trainer/useLogicTrainerSession'
+import { DocumentView } from './components/DocumentView/DocumentView'
 
 const KEY_STORAGE = 'ct_openai_key'
 
@@ -45,7 +46,7 @@ export default function App() {
   }
 
   return (
-    <ChatView
+    <DocumentView
       session={session}
       onStartNew={handleStartNew}
       onChangeKey={handleChangeKey}
